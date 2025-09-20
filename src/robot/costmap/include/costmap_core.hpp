@@ -20,7 +20,7 @@ class CostmapCore {
                              float angle_min, float angle_increment,
                              float range_min, float range_max);
                              
-    const std::vector<std::vector<int>>& getGrid() const { return costmap_; } // Updated to use costmap_
+    const std::vector<std::vector<int>>& getGrid() const { return costmap_; }
     float getResolution() const { return resolution_; }
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
