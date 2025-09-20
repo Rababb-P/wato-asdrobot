@@ -12,7 +12,6 @@ class MapMemoryNode : public rclcpp::Node {
 public:
   MapMemoryNode();
 
-  // Renamed parameter identifiers only (no behavior change)
   void costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr costmap_msg);
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom_msg);
   void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr map_msg);

@@ -17,10 +17,6 @@ private:
   enum class State { WAITING_FOR_GOAL, WAITING_FOR_ROBOT_TO_REACH_GOAL };
   State state_;
 
-  // Planner core (no namespace 'robot' here)
-  // (You didn't have a PlannerCore class; aStar is free functions in planner_core)
-  // Kept a member for parity with other nodes; not strictly required.
-
   // I/O
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr goal_sub_;

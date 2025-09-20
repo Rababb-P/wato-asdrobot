@@ -4,7 +4,7 @@
 
 #include "costmap_node.hpp"
 
-// Node: builds a local costmap directly from /lidar
+//costmap from /lidar
 CostmapNode::CostmapNode()
 : Node("costmap"), costmap_(robot::CostmapCore(this->get_logger()))
 {
@@ -16,7 +16,7 @@ CostmapNode::CostmapNode()
   costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/costmap", 10);
 }
 
-// Convert LiDAR scan to OccupancyGrid with simple linear inflation
+// Convert LiDAR to OccupancyGrid
 void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan) {
   // Grid parameters
   constexpr int    GRID_W        = 300;
@@ -25,10 +25,10 @@ void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   constexpr int8_t OBSTACLE_COST = 100;   // occupied
   constexpr double INFL_RADIUS   = 1.5;   // meters
 
-  // 2-D working grid (x-major indexing retained)
+  // 2-D working grid
   std::vector<std::vector<int8_t>> grid(GRID_W, std::vector<int8_t>(GRID_H, 0));
 
-  // Mark hits and inflate locally
+  // Mark hits and inflate 
   for (size_t i = 0; i < scan->ranges.size(); ++i) {
     const float r = scan->ranges[i];
     if (std::isnan(r) || r < scan->range_min || r > scan->range_max) continue;
@@ -43,7 +43,6 @@ void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
 
     grid[gx][gy] = OBSTACLE_COST;
 
-    // Simple linear falloff to zero at INFL_RADIUS
     const int infl_cells = static_cast<int>(INFL_RADIUS / RESOLUTION);
     for (int dx = -infl_cells; dx <= infl_cells; ++dx) {
       for (int dy = -infl_cells; dy <= infl_cells; ++dy) {
@@ -61,7 +60,6 @@ void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
     }
   }
 
-  // Populate outgoing message (frame + packing preserved)
   nav_msgs::msg::OccupancyGrid out;
   out.header.stamp = scan->header.stamp;
   out.header.frame_id = scan->header.frame_id;
@@ -72,7 +70,7 @@ void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   out.info.origin.position.x = -15.0;
   out.info.origin.position.y = -15.0;
 
-  // Flatten grid[x][y] into row-major vector
+  // Flatten grid[x][y]
   out.data.resize(GRID_W * GRID_H);
   for (int y = 0; y < GRID_H; ++y) {
     for (int x = 0; x < GRID_W; ++x) {

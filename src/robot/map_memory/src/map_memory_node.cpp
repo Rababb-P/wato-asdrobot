@@ -3,7 +3,7 @@
 #include "tf2/LinearMath/Matrix3x3.h"
 #include <cmath>
 
-// Node: fuses rolling /costmap snapshots into a persistent global /map
+// fuse /costmap into /map
 MapMemoryNode::MapMemoryNode()
 : Node("map_memory"), map_memory_(robot::MapMemoryCore(this->get_logger())) 
 {
@@ -16,7 +16,7 @@ MapMemoryNode::MapMemoryNode()
       std::bind(&MapMemoryNode::odomCallback, this, std::placeholders::_1));
   map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", 10);
 
-  // Publish at a fixed cadence
+  // Publish
   timer_ = this->create_wall_timer(
       std::chrono::milliseconds(MAP_PUB_RATE),
       std::bind(&MapMemoryNode::timerCallback, this));
@@ -30,7 +30,7 @@ MapMemoryNode::MapMemoryNode()
   prev_x_  = 0.0;
   prev_y_  = 0.0;
 
-  // Configure global map metadata (fixed world frame)
+  // Configure global map metadata
   global_map_.header.stamp = this->now();
   global_map_.header.frame_id = "sim_world";
   global_map_.info.resolution = MAP_RES;
@@ -40,7 +40,7 @@ MapMemoryNode::MapMemoryNode()
   global_map_.info.origin.position.y = -MAP_HEIGHT * MAP_RES / 2.0;
   global_map_.data.assign(MAP_WIDTH * MAP_HEIGHT, 0);
 
-  // Seed the map (no-op until a costmap arrives)
+  // Seed the map
   updateMap();
   map_pub_->publish(global_map_);
 }
@@ -73,7 +73,7 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   update_map_ = true;
 }
 
-// Periodic publisher; only publishes when both pose + costmap are fresh
+// Only publish when both pose + costmap are fresh
 void MapMemoryNode::timerCallback() {
   if (!update_map_ || !costmap_updated_) return;
 
@@ -89,13 +89,11 @@ void MapMemoryNode::timerCallback() {
 void MapMemoryNode::updateMap() {
   if (std::isnan(robot_x_) || std::isnan(robot_y_)) return;
 
-  // Local grid metadata
   const double local_res = latest_costmap_.info.resolution;
   const int    local_w   = latest_costmap_.info.width;
   const int    local_h   = latest_costmap_.info.height;
   auto&        local_data = latest_costmap_.data;
 
-  // Global map metadata
   const double global_res = global_map_.info.resolution;
   const int    global_w   = global_map_.info.width;
   const int    global_h   = global_map_.info.height;

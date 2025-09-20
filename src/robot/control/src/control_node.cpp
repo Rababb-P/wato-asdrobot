@@ -7,7 +7,7 @@
 PurePursuitController::PurePursuitController()
 : rclcpp::Node("pure_pursuit_controller")
 {
-  // Parameters (can be overridden via params/launch, defaults here)
+  // Parameters 
   lookahead_distance_  = declare_parameter<double>("lookahead_distance", 1.0);
   goal_tolerance_      = declare_parameter<double>("goal_tolerance", 0.2);
   linear_speed_        = declare_parameter<double>("linear_speed", 0.5);
@@ -42,7 +42,7 @@ void PurePursuitController::controlLoop()
 {
   geometry_msgs::msg::Twist stop{};
   if (!current_path_ || current_path_->poses.empty() || !robot_odom_) {
-    // No data → stop
+    // No data, stop
     cmd_vel_pub_->publish(stop);
     return;
   }
@@ -58,7 +58,7 @@ void PurePursuitController::controlLoop()
   // Find target point ahead
   auto lookahead_opt = findLookaheadPoint();
   if (!lookahead_opt) {
-    // Fallback: aim at final goal
+    // Fallback
     geometry_msgs::msg::PoseStamped last = current_path_->poses.back();
     auto cmd = computeVelocity(last);
     cmd_vel_pub_->publish(cmd);
@@ -83,7 +83,7 @@ PurePursuitController::findLookaheadPoint() const
       return ps;
     }
   }
-  // None found → no explicit lookahead (controller can fallback to goal)
+  // None found → no explicit lookahead 
   return std::nullopt;
 }
 
@@ -104,7 +104,7 @@ PurePursuitController::computeVelocity(const geometry_msgs::msg::PoseStamped &ta
   // If target is behind us or extremely close, slow down and turn
   const double Ld = std::max(lookahead_distance_, 1e-3);
   const double v  = linear_speed_;
-  // Pure pursuit curvature: kappa = 2*y / Ld^2 (y is lateral error in robot frame)
+  // Pure pursuit curvature
   const double kappa = 2.0 * ty_r / (Ld * Ld);
   double omega = v * kappa;
 
