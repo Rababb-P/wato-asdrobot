@@ -6,9 +6,12 @@
 #include <unordered_set>
 #include <queue>
 #include <vector>
+
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
 // 2D grid index
 struct CellIndex
@@ -19,17 +22,11 @@ struct CellIndex
   CellIndex(int xx, int yy) : x(xx), y(yy) {}
   CellIndex() : x(0), y(0) {}
 
-  bool operator==(const CellIndex &other) const
-  {
-    return (x == other.x && y == other.y);
-  }
-
-  bool operator!=(const CellIndex &other) const
-  {
-    return (x != other.x || y != other.y);
-  }
+  bool operator==(const CellIndex &other) const { return (x == other.x && y == other.y); }
+  bool operator!=(const CellIndex &other) const { return !(*this == other); }
 };
 
+// Hash for CellIndex
 struct CellIndexHash
 {
   std::size_t operator()(const CellIndex &idx) const
@@ -38,17 +35,17 @@ struct CellIndexHash
   }
 };
 
+// Node for open set (min-heap by f)
 struct AStarNode
 {
   CellIndex index;
   double f_score;  // f = g + h
-
   AStarNode(CellIndex idx, double f) : index(idx), f_score(f) {}
 };
 
 struct CompareF
 {
-  bool operator()(const AStarNode &a, const AStarNode &b)
+  bool operator()(const AStarNode &a, const AStarNode &b) const
   {
     return a.f_score > b.f_score;
   }
@@ -56,16 +53,21 @@ struct CompareF
 
 namespace planner_core
 {
-  /// Convert world (x, y) into grid index
+  // Conversions
   CellIndex worldToMap(double x, double y, const nav_msgs::msg::OccupancyGrid &map);
-
-  /// Convert grid index into world coordinates (x, y)
   geometry_msgs::msg::Pose indexToPose(const CellIndex &idx, const nav_msgs::msg::OccupancyGrid &map);
 
-  /// A* path planning
+  // Occupancy helpers
+  bool isFree(const nav_msgs::msg::OccupancyGrid &map, const CellIndex &c, int8_t occ_thresh = 50);
+  bool findNearestFree(const nav_msgs::msg::OccupancyGrid &map,
+                       const CellIndex &seed, int radius,
+                       CellIndex &out, int8_t occ_thresh = 50);
+
+  // A* path planning (goal is a Point; start is a Pose for orientation compatibility if needed)
   nav_msgs::msg::Path aStarSearch(const nav_msgs::msg::OccupancyGrid &map,
                                   const geometry_msgs::msg::Pose &start_pose,
-                                  const geometry_msgs::msg::Pose &goal_pose);
+                                  const geometry_msgs::msg::Point &goal_point,
+                                  int8_t occ_thresh = 50);
 }
 
-#endif 
+#endif  // PLANNER_CORE_HPP_
