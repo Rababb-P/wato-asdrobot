@@ -7,16 +7,16 @@
 #include "costmap_core.hpp"
 
 class CostmapNode : public rclcpp::Node {
-  public:
-    CostmapNode();
+public:
+  CostmapNode();
 
-    void lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
+  void lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg);
 
-  private:
-    robot::CostmapCore costmap_;
+private:
+  robot::CostmapCore costmap_;
 
-    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_sub_;
-    rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_sub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_pub_;
 };
 
-#endif 
+#endif  // COSTMAP_NODE_HPP_

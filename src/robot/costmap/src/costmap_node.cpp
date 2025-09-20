@@ -4,76 +4,86 @@
 
 #include "costmap_node.hpp"
 
+// Node: builds a local costmap directly from /lidar
 CostmapNode::CostmapNode()
-: Node("costmap"), costmap_(robot::CostmapCore(this->get_logger())) {
+: Node("costmap"), costmap_(robot::CostmapCore(this->get_logger()))
+{
+  // I/O
   lidar_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/lidar", 10,
       std::bind(&CostmapNode::lidarCallback, this, std::placeholders::_1));
+
   costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/costmap", 10);
 }
 
+// Convert LiDAR scan to OccupancyGrid with simple linear inflation
 void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan) {
-  constexpr int GRID_W = 300, GRID_H = 300;
-  constexpr double RESOLUTION = 0.1;
-  constexpr int8_t OBSTACLE_COST = 100;
-  constexpr double INFL_RADIUS = 1.5;
+  // Grid parameters
+  constexpr int    GRID_W        = 300;
+  constexpr int    GRID_H        = 300;
+  constexpr double RESOLUTION    = 0.1;   // m/cell
+  constexpr int8_t OBSTACLE_COST = 100;   // occupied
+  constexpr double INFL_RADIUS   = 1.5;   // meters
 
-  std::vector<std::vector<int8_t>> local_grid(GRID_W, std::vector<int8_t>(GRID_H, 0));
+  // 2-D working grid (x-major indexing retained)
+  std::vector<std::vector<int8_t>> grid(GRID_W, std::vector<int8_t>(GRID_H, 0));
 
-  for (size_t i = 0; i < scan->ranges.size(); i++) {
-    if (scan->ranges[i] < scan->range_min ||
-        scan->ranges[i] > scan->range_max ||
-        std::isnan(scan->ranges[i])) {
-      continue;
-    }
+  // Mark hits and inflate locally
+  for (size_t i = 0; i < scan->ranges.size(); ++i) {
+    const float r = scan->ranges[i];
+    if (std::isnan(r) || r < scan->range_min || r > scan->range_max) continue;
 
-    double beam_angle = scan->angle_min + i * scan->angle_increment;
-    double hit_x = scan->ranges[i] * std::cos(beam_angle);
-    double hit_y = scan->ranges[i] * std::sin(beam_angle);
+    const double ang = scan->angle_min + i * scan->angle_increment;
+    const double hx  = r * std::cos(ang);
+    const double hy  = r * std::sin(ang);
 
-    int grid_x = static_cast<int>(hit_x / RESOLUTION + GRID_W / 2);
-    int grid_y = static_cast<int>(hit_y / RESOLUTION + GRID_H / 2);
+    const int gx = static_cast<int>(hx / RESOLUTION + GRID_W / 2);
+    const int gy = static_cast<int>(hy / RESOLUTION + GRID_H / 2);
+    if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) continue;
 
-    if (grid_x < 0 || grid_x >= GRID_W || grid_y < 0 || grid_y >= GRID_H) continue;
+    grid[gx][gy] = OBSTACLE_COST;
 
-    local_grid[grid_x][grid_y] = OBSTACLE_COST;
-
-    for (int dx = -INFL_RADIUS / RESOLUTION; dx <= INFL_RADIUS / RESOLUTION; dx++) {
-      for (int dy = -INFL_RADIUS / RESOLUTION; dy <= INFL_RADIUS / RESOLUTION; dy++) {
-        int nx = grid_x + dx;
-        int ny = grid_y + dy;
+    // Simple linear falloff to zero at INFL_RADIUS
+    const int infl_cells = static_cast<int>(INFL_RADIUS / RESOLUTION);
+    for (int dx = -infl_cells; dx <= infl_cells; ++dx) {
+      for (int dy = -infl_cells; dy <= infl_cells; ++dy) {
+        const int nx = gx + dx;
+        const int ny = gy + dy;
         if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) continue;
 
-        double offset_dist = std::hypot(dx, dy) * RESOLUTION;
-        if (offset_dist > INFL_RADIUS) continue;
+        const double d = std::hypot(dx, dy) * RESOLUTION;
+        if (d > INFL_RADIUS) continue;
 
-        int cost_val = static_cast<int>(
-            OBSTACLE_COST * (1.0 - std::min(1.0, offset_dist / INFL_RADIUS)));
-        local_grid[nx][ny] = std::max(static_cast<int>(local_grid[nx][ny]), cost_val);
+        const int cost = static_cast<int>(
+            OBSTACLE_COST * (1.0 - std::min(1.0, d / INFL_RADIUS)));
+        grid[nx][ny] = static_cast<int8_t>(std::max<int>(grid[nx][ny], cost));
       }
     }
   }
 
-  nav_msgs::msg::OccupancyGrid out_grid;
-  out_grid.header.stamp = scan->header.stamp;
-  out_grid.header.frame_id = scan->header.frame_id;
-  out_grid.info.resolution = RESOLUTION;
-  out_grid.info.width = GRID_W;
-  out_grid.info.height = GRID_H;
-  out_grid.info.origin.position.x = -15.0;
-  out_grid.info.origin.position.y = -15.0;
+  // Populate outgoing message (frame + packing preserved)
+  nav_msgs::msg::OccupancyGrid out;
+  out.header.stamp = scan->header.stamp;
+  out.header.frame_id = scan->header.frame_id;
 
-  out_grid.data.resize(GRID_W * GRID_H);
-  for (int j = 0; j < GRID_H; j++) {
-    for (int i = 0; i < GRID_W; i++) {
-      out_grid.data[j * GRID_W + i] = local_grid[i][j];
+  out.info.resolution = RESOLUTION;
+  out.info.width  = GRID_W;
+  out.info.height = GRID_H;
+  out.info.origin.position.x = -15.0;
+  out.info.origin.position.y = -15.0;
+
+  // Flatten grid[x][y] into row-major vector
+  out.data.resize(GRID_W * GRID_H);
+  for (int y = 0; y < GRID_H; ++y) {
+    for (int x = 0; x < GRID_W; ++x) {
+      out.data[y * GRID_W + x] = grid[x][y];
     }
   }
 
-  costmap_pub_->publish(out_grid);
+  costmap_pub_->publish(out);
 }
 
-int main(int argc, char ** argv)
+int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<CostmapNode>());
