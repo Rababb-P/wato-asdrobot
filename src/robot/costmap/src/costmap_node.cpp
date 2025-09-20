@@ -6,18 +6,18 @@
 
 //costmap from /lidar
 CostmapNode::CostmapNode()
-: Node("costmap"), costmap_(robot::CostmapCore(this->get_logger()))
+: Node("costmap"), core_(robot::CostmapCore(this->get_logger()))
 {
   // I/O
-  lidar_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+  laser_subscription_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/lidar", 10,
-      std::bind(&CostmapNode::lidarCallback, this, std::placeholders::_1));
+      std::bind(&CostmapNode::handleLaserScan, this, std::placeholders::_1));
 
-  costmap_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/costmap", 10);
+  costmap_publisher_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/costmap", 10);
 }
 
 // Convert LiDAR to OccupancyGrid
-void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan) {
+void CostmapNode::handleLaserScan(const sensor_msgs::msg::LaserScan::SharedPtr scan) {
   // Grid parameters
   constexpr int    GRID_W        = 300;
   constexpr int    GRID_H        = 300;
@@ -29,33 +29,47 @@ void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   std::vector<std::vector<int8_t>> grid(GRID_W, std::vector<int8_t>(GRID_H, 0));
 
   // Mark hits and inflate 
+  const int infl_cells = static_cast<int>(INFL_RADIUS / RESOLUTION);
+
+  auto in_bounds = [&](int ix, int iy) -> bool {
+    return (ix >= 0 && ix < GRID_W && iy >= 0 && iy < GRID_H);
+  };
+
+  auto to_grid = [&](double wx, double wy) -> std::pair<int,int> {
+    int ix = static_cast<int>(wx / RESOLUTION + GRID_W / 2);
+    int iy = static_cast<int>(wy / RESOLUTION + GRID_H / 2);
+    return {ix, iy};
+  };
+
+  auto decay_cost = [&](int dx, int dy) -> int8_t {
+    double dist_m = std::hypot(dx, dy) * RESOLUTION;
+    if (dist_m > INFL_RADIUS) return 0;
+    int c = static_cast<int>(OBSTACLE_COST * (1.0 - std::min(1.0, dist_m / INFL_RADIUS)));
+    return static_cast<int8_t>(c);
+  };
+
   for (size_t i = 0; i < scan->ranges.size(); ++i) {
-    const float r = scan->ranges[i];
-    if (std::isnan(r) || r < scan->range_min || r > scan->range_max) continue;
+    const float rng = scan->ranges[i];
+    if (std::isnan(rng) || rng < scan->range_min || rng > scan->range_max) continue;
 
-    const double ang = scan->angle_min + i * scan->angle_increment;
-    const double hx  = r * std::cos(ang);
-    const double hy  = r * std::sin(ang);
+    const double ang = scan->angle_min + static_cast<double>(i) * scan->angle_increment;
+    const double wx  = static_cast<double>(rng) * std::cos(ang);
+    const double wy  = static_cast<double>(rng) * std::sin(ang);
 
-    const int gx = static_cast<int>(hx / RESOLUTION + GRID_W / 2);
-    const int gy = static_cast<int>(hy / RESOLUTION + GRID_H / 2);
-    if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) continue;
+    auto [cx, cy] = to_grid(wx, wy);
+    if (!in_bounds(cx, cy)) continue;
 
-    grid[gx][gy] = OBSTACLE_COST;
+    grid[cx][cy] = OBSTACLE_COST;
 
-    const int infl_cells = static_cast<int>(INFL_RADIUS / RESOLUTION);
     for (int dx = -infl_cells; dx <= infl_cells; ++dx) {
       for (int dy = -infl_cells; dy <= infl_cells; ++dy) {
-        const int nx = gx + dx;
-        const int ny = gy + dy;
-        if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) continue;
+        const int xx = cx + dx;
+        const int yy = cy + dy;
+        if (!in_bounds(xx, yy)) continue;
 
-        const double d = std::hypot(dx, dy) * RESOLUTION;
-        if (d > INFL_RADIUS) continue;
-
-        const int cost = static_cast<int>(
-            OBSTACLE_COST * (1.0 - std::min(1.0, d / INFL_RADIUS)));
-        grid[nx][ny] = static_cast<int8_t>(std::max<int>(grid[nx][ny], cost));
+        const int8_t c = decay_cost(dx, dy);
+        if (c == 0) continue;
+        grid[xx][yy] = static_cast<int8_t>(std::max<int>(grid[xx][yy], c));
       }
     }
   }
@@ -71,14 +85,15 @@ void CostmapNode::lidarCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   out.info.origin.position.y = -15.0;
 
   // Flatten grid[x][y]
-  out.data.resize(GRID_W * GRID_H);
-  for (int y = 0; y < GRID_H; ++y) {
-    for (int x = 0; x < GRID_W; ++x) {
-      out.data[y * GRID_W + x] = grid[x][y];
+  out.data.resize(static_cast<size_t>(GRID_W) * static_cast<size_t>(GRID_H));
+  for (int gy = 0; gy < GRID_H; ++gy) {
+    const int row_off = gy * GRID_W;
+    for (int gx = 0; gx < GRID_W; ++gx) {
+      out.data[static_cast<size_t>(row_off + gx)] = grid[gx][gy];
     }
   }
 
-  costmap_pub_->publish(out);
+  costmap_publisher_->publish(out);
 }
 
 int main(int argc, char** argv)
